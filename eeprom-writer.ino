@@ -72,7 +72,7 @@ byte g_cmd[80]; // strings received from the controller will go in here
 static const int kMaxBufferSize = 16;
 byte buffer[kMaxBufferSize];
 
-static const long int k_uTime_WritePulse_uS = 1; 
+static const long int k_uTime_WritePulse_uS = 1;
 static const long int k_uTime_ReadPulse_uS = 1;
 // (to be honest, both of the above are about ten times too big - but the Arduino won't reliably
 // delay down at the nanosecond level, so this is the best we can do.)
@@ -80,7 +80,7 @@ static const long int k_uTime_ReadPulse_uS = 1;
 // the setup function runs once when you press reset or power the board
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(57600);
 
   pinMode(kPin_WaitingForInput, OUTPUT); digitalWrite(kPin_WaitingForInput, HIGH);
   pinMode(kPin_LED_Red, OUTPUT); digitalWrite(kPin_LED_Red, LOW);
@@ -119,7 +119,7 @@ void loop()
     digitalWrite(kPin_WaitingForInput, HIGH);
     ReadString();
     digitalWrite(kPin_WaitingForInput, LOW);
-    
+
     switch (g_cmd[0])
     {
       case 'V': Serial.println(version_string); break;
@@ -148,13 +148,13 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
   {
     addr = addr << 4;
     addr |= HexToVal(g_cmd[x++]);
-  }     
+  }
 
   digitalWrite(kPin_nWE, HIGH); // disables write
   SetDataLinesAsInputs();
   digitalWrite(kPin_nOE, LOW); // makes the EEPROM output the byte
   delayMicroseconds(1);
-      
+
   ReadEEPROMIntoBuffer(addr, kMaxBufferSize);
 
   // now print the results, starting with the address as hex ...
@@ -193,7 +193,7 @@ void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per 
     Serial.println("ERR");
     return;
   }
-  
+
   x++; // now points to beginning of data
   uint8_t iBufferUsed = 0;
   while (g_cmd[x] && g_cmd[x+1] && iBufferUsed < kMaxBufferSize && g_cmd[x] != ',')
@@ -247,29 +247,50 @@ void SetSDPState(bool bWriteProtect)
   digitalWrite(kPin_nWE, HIGH); // disables write
   digitalWrite(kPin_nOE, LOW); // makes the EEPROM output the byte
   SetDataLinesAsInputs();
-  
+
   byte bytezero = ReadByteFrom(0);
-  
+
   digitalWrite(kPin_nOE, HIGH); // stop EEPROM from outputting byte
   digitalWrite(kPin_nCE, HIGH);
   SetDataLinesAsOutputs();
 
+  // Different chips can have different byte sequences.
+  // Check the data sheet if your chip doesn't match on of the below.
+
+  // Use this is for the AT28C64B
+  // if (bWriteProtect)
+  // {
+  //   WriteByteTo(0x1555, 0xAA);
+  //   WriteByteTo(0x0AAA, 0x55);
+  //   WriteByteTo(0x1555, 0xA0);
+  // }
+  // else
+  // {
+  //   WriteByteTo(0x1555, 0xAA);
+  //   WriteByteTo(0x0AAA, 0x55);
+  //   WriteByteTo(0x1555, 0x80);
+  //   WriteByteTo(0x1555, 0xAA);
+  //   WriteByteTo(0x0AAA, 0x55);
+  //   WriteByteTo(0x1555, 0x20);
+  // }
+
+  // This is for the AT28C256
   if (bWriteProtect)
   {
-    WriteByteTo(0x1555, 0xAA);
-    WriteByteTo(0x0AAA, 0x55);
-    WriteByteTo(0x1555, 0xA0);
+    WriteByteTo(0x5555, 0xAA);
+    WriteByteTo(0x2AAA, 0x55);
+    WriteByteTo(0x5555, 0xA0);
   }
   else
   {
-    WriteByteTo(0x1555, 0xAA);
-    WriteByteTo(0x0AAA, 0x55);
-    WriteByteTo(0x1555, 0x80);
-    WriteByteTo(0x1555, 0xAA);
-    WriteByteTo(0x0AAA, 0x55);
-    WriteByteTo(0x1555, 0x20);
+    WriteByteTo(0x5555, 0xAA);
+    WriteByteTo(0x2AAA, 0x55);
+    WriteByteTo(0x5555, 0x80);
+    WriteByteTo(0x5555, 0xAA);
+    WriteByteTo(0x2AAA, 0x55);
+    WriteByteTo(0x5555, 0x20);
   }
-  
+
   WriteByteTo(0x0000, bytezero); // this "dummy" write is required so that the EEPROM will flush its buffer of commands.
 
   digitalWrite(kPin_nCE, LOW); // return to on by default for the rest of the code
@@ -294,7 +315,7 @@ void ReadEEPROMIntoBuffer(int addr, int size)
   digitalWrite(kPin_nWE, HIGH);
   SetDataLinesAsInputs();
   digitalWrite(kPin_nOE, LOW);
-  
+
   for (int x = 0; x < size; ++x)
   {
     buffer[x] = ReadByteFrom(addr + x);
@@ -315,7 +336,7 @@ void WriteBufferToEEPROM(int addr, int size)
   {
     WriteByteTo(addr + x, buffer[x]);
   }
-  
+
   digitalWrite(kPin_LED_Red, LOW);
 }
 
@@ -342,11 +363,11 @@ void WriteByteTo(int addr, byte b)
   SetData(b);
 
   digitalWrite(kPin_nCE, LOW);
-  digitalWrite(kPin_nWE, LOW); // enable write  
+  digitalWrite(kPin_nWE, LOW); // enable write
   delayMicroseconds(k_uTime_WritePulse_uS);
-  
+
   digitalWrite(kPin_nWE, HIGH); // disable write
-  digitalWrite(kPin_nCE, HIGH); 
+  digitalWrite(kPin_nCE, HIGH);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -461,7 +482,7 @@ void ReadString()
         g_cmd[i] = 0;
       }
     }
-  } 
+  }
   while (c != 10);
 }
 
