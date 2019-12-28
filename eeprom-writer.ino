@@ -28,6 +28,45 @@
 // before anything is written.
 //
 
+/*
+  rd,wr,rom_wr,iorq,mrq,rst,bsrq,bsack
+
+  make arduino not affect anything:
+  set addr and data as input
+  set rd,wr,iorq,mrq as input
+  set bsack as input
+
+  prepare for bus take over
+  set rom_wr,rst,bsrq as output
+  set rom_wr,rst,bsrq high
+
+  reset and request bus
+  set rst low
+  set bsrq low
+  wait
+  set reset high
+  wait for busack to go low
+
+  prepare to control bus
+  set rd,wr,iorq,mrq as output
+
+  activate memory
+  set rd,wr high
+  set iorq high
+  set mrq low
+
+  do the normal write (using rom_wr, and rd)
+
+  prepare to give bus back
+  set rd,wr,iorq,mrq,rom_wr,addr,data as input
+  set bsrq as input
+
+  reset z80
+  set reset low
+  wait
+  set reset as input
+*/
+
 #include <avr/pgmspace.h>
 
 const char hex[] =
@@ -38,35 +77,64 @@ const char hex[] =
 
 const char version_string[] = {"EEPROM Version=0.02"};
 
-static const int kPin_Addr14  = 24;
-static const int kPin_Addr12  = 26;
-static const int kPin_Addr7   = 28;
-static const int kPin_Addr6   = 30;
-static const int kPin_Addr5   = 32;
-static const int kPin_Addr4   = 34;
-static const int kPin_Addr3   = 36;
-static const int kPin_Addr2   = 38;
-static const int kPin_Addr1   = 40;
-static const int kPin_Addr0   = 42;
-static const int kPin_Data0   = 44;
-static const int kPin_Data1   = 46;
-static const int kPin_Data2   = 48;
-static const int kPin_nWE     = 27;
-static const int kPin_Addr13  = 29;
-static const int kPin_Addr8   = 31;
-static const int kPin_Addr9   = 33;
-static const int kPin_Addr11  = 35;
-static const int kPin_nOE     = 37;
-static const int kPin_Addr10  = 39;
-static const int kPin_nCE     = 41;
-static const int kPin_Data7   = 43;
-static const int kPin_Data6   = 45;
-static const int kPin_Data5   = 47;
-static const int kPin_Data4   = 49;
-static const int kPin_Data3   = 51;
-static const int kPin_WaitingForInput  = 13;
-static const int kPin_LED_Red = 22;
-static const int kPin_LED_Grn = 53;
+// For the old thing
+// static const int pin_Addr14  = 24;
+// static const int pin_Addr12  = 26;
+// static const int pin_Addr7   = 28;
+// static const int pin_Addr6   = 30;
+// static const int pin_Addr5   = 32;
+// static const int pin_Addr4   = 34;
+// static const int pin_Addr3   = 36;
+// static const int pin_Addr2   = 38;
+// static const int pin_Addr1   = 40;
+// static const int pin_Addr0   = 42;
+// static const int pin_Data0   = 44;
+// static const int pin_Data1   = 46;
+// static const int pin_Data2   = 48;
+// static const int pin_nWE     = 27;
+// static const int pin_Addr13  = 29;
+// static const int pin_Addr8   = 31;
+// static const int pin_Addr9   = 33;
+// static const int pin_Addr11  = 35;
+// static const int pin_nOE     = 37;
+// static const int pin_Addr10  = 39;
+// static const int pin_nCE     = 41;
+// static const int pin_Data7   = 43;
+// static const int pin_Data6   = 45;
+// static const int pin_Data5   = 47;
+// static const int pin_Data4   = 49;
+// static const int pin_Data3   = 51;
+// static const int pin_WaitingForInput  = 13;
+// static const int pin_LED_Red = 22;
+// static const int pin_LED_Grn = 53;
+
+static const int pin_WaitingForInput  = 13;
+static const int pin_LED_Red = ;
+static const int pin_LED_Grn = ;
+
+static const int pin_addr[] = {
+  22, 23, 24, 25, 26, 27, 28, 29,
+  30, 31, 32, 33, 34, 35, 36, 37
+};
+
+static const int pin_data[] = {
+  38, 39, 40, 41, 42, 43, 44, 48
+};
+
+// rd,wr,rom_wr,iorq,mrq,rst,bsrq,bsack
+static const int pin_rd = 50;
+static const int pin_wr = 49;
+static const int pin_rom_wr = 46;
+static const int pin_iorq = 97;
+static const int pin_mrq = 47;
+static const int pin_rst = 48;
+static const int pin_bsrq = 53;
+static const int pin_bsak = 95;
+
+static const int pin_nWE = pin_rom_wr;
+static const int pin_nOE = pin_rd;
+
+// static const int pin_nCE get rid of this
 
 byte g_cmd[80]; // strings received from the controller will go in here
 static const int kMaxBufferSize = 16;
@@ -82,31 +150,32 @@ void setup()
 {
   Serial.begin(57600);
 
-  pinMode(kPin_WaitingForInput, OUTPUT); digitalWrite(kPin_WaitingForInput, HIGH);
-  pinMode(kPin_LED_Red, OUTPUT); digitalWrite(kPin_LED_Red, LOW);
-  pinMode(kPin_LED_Grn, OUTPUT); digitalWrite(kPin_LED_Grn, LOW);
+  pinMode(pin_WaitingForInput, OUTPUT); digitalWrite(pin_WaitingForInput, HIGH);
+  pinMode(pin_LED_Red, OUTPUT); digitalWrite(pin_LED_Red, LOW);
+  pinMode(pin_LED_Grn, OUTPUT); digitalWrite(pin_LED_Grn, LOW);
 
   // address lines are ALWAYS outputs
-  pinMode(kPin_Addr0,  OUTPUT);
-  pinMode(kPin_Addr1,  OUTPUT);
-  pinMode(kPin_Addr2,  OUTPUT);
-  pinMode(kPin_Addr3,  OUTPUT);
-  pinMode(kPin_Addr4,  OUTPUT);
-  pinMode(kPin_Addr5,  OUTPUT);
-  pinMode(kPin_Addr6,  OUTPUT);
-  pinMode(kPin_Addr7,  OUTPUT);
-  pinMode(kPin_Addr8,  OUTPUT);
-  pinMode(kPin_Addr9,  OUTPUT);
-  pinMode(kPin_Addr10, OUTPUT);
-  pinMode(kPin_Addr11, OUTPUT);
-  pinMode(kPin_Addr12, OUTPUT);
-  pinMode(kPin_Addr13, OUTPUT);
-  pinMode(kPin_Addr14, OUTPUT);
+  pinMode(pin_addr[0],  OUTPUT);
+  pinMode(pin_addr[1],  OUTPUT);
+  pinMode(pin_addr[2],  OUTPUT);
+  pinMode(pin_addr[3],  OUTPUT);
+  pinMode(pin_addr[4],  OUTPUT);
+  pinMode(pin_addr[5],  OUTPUT);
+  pinMode(pin_addr[6],  OUTPUT);
+  pinMode(pin_addr[7],  OUTPUT);
+  pinMode(pin_addr[8],  OUTPUT);
+  pinMode(pin_addr[9],  OUTPUT);
+  pinMode(pin_addr[10], OUTPUT);
+  pinMode(pin_addr[11], OUTPUT);
+  pinMode(pin_addr[12], OUTPUT);
+  pinMode(pin_addr[13], OUTPUT);
+  pinMode(pin_addr[14], OUTPUT);
+  pinMode(pin_addr[15], OUTPUT);
 
   // control lines are ALWAYS outputs
-  pinMode(kPin_nCE, OUTPUT); digitalWrite(kPin_nCE, LOW); // might as well keep the chip enabled ALL the time
-  pinMode(kPin_nOE, OUTPUT); digitalWrite(kPin_nOE, HIGH);
-  pinMode(kPin_nWE, OUTPUT); digitalWrite(kPin_nWE, HIGH); // not writing
+  // pinMode(pin_nCE, OUTPUT); digitalWrite(pin_nCE, LOW); // might as well keep the chip enabled ALL the time
+  pinMode(pin_nOE, OUTPUT); digitalWrite(pin_nOE, HIGH);
+  pinMode(pin_nWE, OUTPUT); digitalWrite(pin_nWE, HIGH); // not writing
 
   SetDataLinesAsInputs();
   SetAddress(0);
@@ -116,9 +185,9 @@ void loop()
 {
   while (true)
   {
-    digitalWrite(kPin_WaitingForInput, HIGH);
+    digitalWrite(pin_WaitingForInput, HIGH);
     ReadString();
-    digitalWrite(kPin_WaitingForInput, LOW);
+    digitalWrite(pin_WaitingForInput, LOW);
 
     switch (g_cmd[0])
     {
@@ -150,9 +219,9 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
     addr |= HexToVal(g_cmd[x++]);
   }
 
-  digitalWrite(kPin_nWE, HIGH); // disables write
+  digitalWrite(pin_nWE, HIGH); // disables write
   SetDataLinesAsInputs();
-  digitalWrite(kPin_nOE, LOW); // makes the EEPROM output the byte
+  digitalWrite(pin_nOE, LOW); // makes the EEPROM output the byte
   delayMicroseconds(1);
 
   ReadEEPROMIntoBuffer(addr, kMaxBufferSize);
@@ -167,7 +236,7 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
 
   Serial.println("OK");
 
-  digitalWrite(kPin_nOE, HIGH); // stops the EEPROM outputting the byte
+  digitalWrite(pin_nOE, HIGH); // stops the EEPROM outputting the byte
 }
 
 void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per byte, max of 16 bytes per line>
@@ -242,16 +311,16 @@ void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per 
 
 void SetSDPState(bool bWriteProtect)
 {
-  digitalWrite(kPin_LED_Red, HIGH);
+  digitalWrite(pin_LED_Red, HIGH);
 
-  digitalWrite(kPin_nWE, HIGH); // disables write
-  digitalWrite(kPin_nOE, LOW); // makes the EEPROM output the byte
+  digitalWrite(pin_nWE, HIGH); // disables write
+  digitalWrite(pin_nOE, LOW); // makes the EEPROM output the byte
   SetDataLinesAsInputs();
 
   byte bytezero = ReadByteFrom(0);
 
-  digitalWrite(kPin_nOE, HIGH); // stop EEPROM from outputting byte
-  digitalWrite(kPin_nCE, HIGH);
+  digitalWrite(pin_nOE, HIGH); // stop EEPROM from outputting byte
+  digitalWrite(pin_nCE, HIGH);
   SetDataLinesAsOutputs();
 
   // Different chips can have different byte sequences.
@@ -293,8 +362,8 @@ void SetSDPState(bool bWriteProtect)
 
   WriteByteTo(0x0000, bytezero); // this "dummy" write is required so that the EEPROM will flush its buffer of commands.
 
-  digitalWrite(kPin_nCE, LOW); // return to on by default for the rest of the code
-  digitalWrite(kPin_LED_Red, LOW);
+  digitalWrite(pin_nCE, LOW); // return to on by default for the rest of the code
+  digitalWrite(pin_LED_Red, LOW);
 
   Serial.print("OK SDP ");
   if (bWriteProtect)
@@ -311,25 +380,25 @@ void SetSDPState(bool bWriteProtect)
 
 void ReadEEPROMIntoBuffer(int addr, int size)
 {
-  digitalWrite(kPin_LED_Grn, HIGH);
-  digitalWrite(kPin_nWE, HIGH);
+  digitalWrite(pin_LED_Grn, HIGH);
+  digitalWrite(pin_nWE, HIGH);
   SetDataLinesAsInputs();
-  digitalWrite(kPin_nOE, LOW);
+  digitalWrite(pin_nOE, LOW);
 
   for (int x = 0; x < size; ++x)
   {
     buffer[x] = ReadByteFrom(addr + x);
   }
 
-  digitalWrite(kPin_nOE, HIGH);
-  digitalWrite(kPin_LED_Grn, LOW);
+  digitalWrite(pin_nOE, HIGH);
+  digitalWrite(pin_LED_Grn, LOW);
 }
 
 void WriteBufferToEEPROM(int addr, int size)
 {
-  digitalWrite(kPin_LED_Red, HIGH);
-  digitalWrite(kPin_nOE, HIGH); // stop EEPROM from outputting byte
-  digitalWrite(kPin_nWE, HIGH); // disables write
+  digitalWrite(pin_LED_Red, HIGH);
+  digitalWrite(pin_nOE, HIGH); // stop EEPROM from outputting byte
+  digitalWrite(pin_nWE, HIGH); // disables write
   SetDataLinesAsOutputs();
 
   for (uint8_t x = 0; x < size; ++x)
@@ -337,7 +406,7 @@ void WriteBufferToEEPROM(int addr, int size)
     WriteByteTo(addr + x, buffer[x]);
   }
 
-  digitalWrite(kPin_LED_Red, LOW);
+  digitalWrite(pin_LED_Red, LOW);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -347,10 +416,10 @@ void WriteBufferToEEPROM(int addr, int size)
 byte ReadByteFrom(int addr)
 {
   SetAddress(addr);
-  digitalWrite(kPin_nCE, LOW);
+  digitalWrite(pin_nCE, LOW);
   delayMicroseconds(k_uTime_ReadPulse_uS);
   byte b = ReadData();
-  digitalWrite(kPin_nCE, HIGH);
+  digitalWrite(pin_nCE, HIGH);
 
   return b;
 }
@@ -362,70 +431,70 @@ void WriteByteTo(int addr, byte b)
   SetAddress(addr);
   SetData(b);
 
-  digitalWrite(kPin_nCE, LOW);
-  digitalWrite(kPin_nWE, LOW); // enable write
+  digitalWrite(pin_nCE, LOW);
+  digitalWrite(pin_nWE, LOW); // enable write
   delayMicroseconds(k_uTime_WritePulse_uS);
 
-  digitalWrite(kPin_nWE, HIGH); // disable write
-  digitalWrite(kPin_nCE, HIGH);
+  digitalWrite(pin_nWE, HIGH); // disable write
+  digitalWrite(pin_nCE, HIGH);
 }
 
 // ----------------------------------------------------------------------------------------
 
 void SetDataLinesAsInputs()
 {
-  pinMode(kPin_Data0, INPUT);
-  pinMode(kPin_Data1, INPUT);
-  pinMode(kPin_Data2, INPUT);
-  pinMode(kPin_Data3, INPUT);
-  pinMode(kPin_Data4, INPUT);
-  pinMode(kPin_Data5, INPUT);
-  pinMode(kPin_Data6, INPUT);
-  pinMode(kPin_Data7, INPUT);
+  pinMode(pin_data[0], INPUT);
+  pinMode(pin_data[1], INPUT);
+  pinMode(pin_data[2], INPUT);
+  pinMode(pin_data[3], INPUT);
+  pinMode(pin_data[4], INPUT);
+  pinMode(pin_data[5], INPUT);
+  pinMode(pin_data[6], INPUT);
+  pinMode(pin_data[7], INPUT);
 }
 
 void SetDataLinesAsOutputs()
 {
-  pinMode(kPin_Data0, OUTPUT);
-  pinMode(kPin_Data1, OUTPUT);
-  pinMode(kPin_Data2, OUTPUT);
-  pinMode(kPin_Data3, OUTPUT);
-  pinMode(kPin_Data4, OUTPUT);
-  pinMode(kPin_Data5, OUTPUT);
-  pinMode(kPin_Data6, OUTPUT);
-  pinMode(kPin_Data7, OUTPUT);
+  pinMode(pin_data[0], OUTPUT);
+  pinMode(pin_data[1], OUTPUT);
+  pinMode(pin_data[2], OUTPUT);
+  pinMode(pin_data[3], OUTPUT);
+  pinMode(pin_data[4], OUTPUT);
+  pinMode(pin_data[5], OUTPUT);
+  pinMode(pin_data[6], OUTPUT);
+  pinMode(pin_data[7], OUTPUT);
 }
 
 void SetAddress(int a)
 {
-  digitalWrite(kPin_Addr0,  (a&1)?HIGH:LOW    );
-  digitalWrite(kPin_Addr1,  (a&2)?HIGH:LOW    );
-  digitalWrite(kPin_Addr2,  (a&4)?HIGH:LOW    );
-  digitalWrite(kPin_Addr3,  (a&8)?HIGH:LOW    );
-  digitalWrite(kPin_Addr4,  (a&16)?HIGH:LOW   );
-  digitalWrite(kPin_Addr5,  (a&32)?HIGH:LOW   );
-  digitalWrite(kPin_Addr6,  (a&64)?HIGH:LOW   );
-  digitalWrite(kPin_Addr7,  (a&128)?HIGH:LOW  );
-  digitalWrite(kPin_Addr8,  (a&256)?HIGH:LOW  );
-  digitalWrite(kPin_Addr9,  (a&512)?HIGH:LOW  );
-  digitalWrite(kPin_Addr10, (a&1024)?HIGH:LOW );
-  digitalWrite(kPin_Addr11, (a&2048)?HIGH:LOW );
-  digitalWrite(kPin_Addr12, (a&4096)?HIGH:LOW );
-  digitalWrite(kPin_Addr13, (a&8192)?HIGH:LOW );
-  digitalWrite(kPin_Addr14, (a&16384)?HIGH:LOW);
+  digitalWrite(pin_addr[0],  (a&1)?HIGH:LOW    );
+  digitalWrite(pin_addr[1],  (a&2)?HIGH:LOW    );
+  digitalWrite(pin_addr[2],  (a&4)?HIGH:LOW    );
+  digitalWrite(pin_addr[3],  (a&8)?HIGH:LOW    );
+  digitalWrite(pin_addr[4],  (a&16)?HIGH:LOW   );
+  digitalWrite(pin_addr[5],  (a&32)?HIGH:LOW   );
+  digitalWrite(pin_addr[6],  (a&64)?HIGH:LOW   );
+  digitalWrite(pin_addr[7],  (a&128)?HIGH:LOW  );
+  digitalWrite(pin_addr[8],  (a&256)?HIGH:LOW  );
+  digitalWrite(pin_addr[9],  (a&512)?HIGH:LOW  );
+  digitalWrite(pin_addr[10], (a&1024)?HIGH:LOW );
+  digitalWrite(pin_addr[11], (a&2048)?HIGH:LOW );
+  digitalWrite(pin_addr[12], (a&4096)?HIGH:LOW );
+  digitalWrite(pin_addr[13], (a&8192)?HIGH:LOW );
+  digitalWrite(pin_addr[14], (a&16384)?HIGH:LOW);
 }
 
 // this function assumes that data lines have already been set as OUTPUTS.
 void SetData(byte b)
 {
-  digitalWrite(kPin_Data0, (b&1)?HIGH:LOW  );
-  digitalWrite(kPin_Data1, (b&2)?HIGH:LOW  );
-  digitalWrite(kPin_Data2, (b&4)?HIGH:LOW  );
-  digitalWrite(kPin_Data3, (b&8)?HIGH:LOW  );
-  digitalWrite(kPin_Data4, (b&16)?HIGH:LOW );
-  digitalWrite(kPin_Data5, (b&32)?HIGH:LOW );
-  digitalWrite(kPin_Data6, (b&64)?HIGH:LOW );
-  digitalWrite(kPin_Data7, (b&128)?HIGH:LOW);
+  digitalWrite(pin_data[0], (b&1)?HIGH:LOW  );
+  digitalWrite(pin_data[1], (b&2)?HIGH:LOW  );
+  digitalWrite(pin_data[2], (b&4)?HIGH:LOW  );
+  digitalWrite(pin_data[3], (b&8)?HIGH:LOW  );
+  digitalWrite(pin_data[4], (b&16)?HIGH:LOW );
+  digitalWrite(pin_data[5], (b&32)?HIGH:LOW );
+  digitalWrite(pin_data[6], (b&64)?HIGH:LOW );
+  digitalWrite(pin_data[7], (b&128)?HIGH:LOW);
 }
 
 // this function assumes that data lines have already been set as INPUTS.
@@ -433,14 +502,14 @@ byte ReadData()
 {
   byte b = 0;
 
-  if (digitalRead(kPin_Data0) == HIGH) b |= 1;
-  if (digitalRead(kPin_Data1) == HIGH) b |= 2;
-  if (digitalRead(kPin_Data2) == HIGH) b |= 4;
-  if (digitalRead(kPin_Data3) == HIGH) b |= 8;
-  if (digitalRead(kPin_Data4) == HIGH) b |= 16;
-  if (digitalRead(kPin_Data5) == HIGH) b |= 32;
-  if (digitalRead(kPin_Data6) == HIGH) b |= 64;
-  if (digitalRead(kPin_Data7) == HIGH) b |= 128;
+  if (digitalRead(pin_data[0]) == HIGH) b |= 1;
+  if (digitalRead(pin_data[1]) == HIGH) b |= 2;
+  if (digitalRead(pin_data[2]) == HIGH) b |= 4;
+  if (digitalRead(pin_data[3]) == HIGH) b |= 8;
+  if (digitalRead(pin_data[4]) == HIGH) b |= 16;
+  if (digitalRead(pin_data[5]) == HIGH) b |= 32;
+  if (digitalRead(pin_data[6]) == HIGH) b |= 64;
+  if (digitalRead(pin_data[7]) == HIGH) b |= 128;
 
   return(b);
 }
