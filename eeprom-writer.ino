@@ -28,6 +28,7 @@
 // before anything is written.
 //
 
+
 /*
   rd,wr,rom_wr,iorq,mrq,rst,bsrq,bsack
 
@@ -105,12 +106,8 @@ const char version_string[] = {"EEPROM Version=0.02"};
 // static const int pin_Data4   = 49;
 // static const int pin_Data3   = 51;
 // static const int pin_WaitingForInput  = 13;
-// static const int pin_LED_Red = 22;
-// static const int pin_LED_Grn = 53;
 
 static const int pin_WaitingForInput  = 13;
-static const int pin_LED_Red = ;
-static const int pin_LED_Grn = ;
 
 static const int pin_addr[] = {
   22, 23, 24, 25, 26, 27, 28, 29,
@@ -118,22 +115,22 @@ static const int pin_addr[] = {
 };
 
 static const int pin_data[] = {
-  38, 39, 40, 41, 42, 43, 44, 48
+  38, 39, 40, 41, 42, 43, 44, 45
 };
 
 // rd,wr,rom_wr,iorq,mrq,rst,bsrq,bsack
 static const int pin_rd = 50;
 static const int pin_wr = 49;
 static const int pin_rom_wr = 46;
-static const int pin_iorq = 97;
+static const int pin_iorq = A0;
 static const int pin_mrq = 47;
 static const int pin_rst = 48;
 static const int pin_bsrq = 53;
-static const int pin_bsak = 95;
+static const int pin_bsak = A2;
 
 static const int pin_nWE = pin_rom_wr;
 static const int pin_nOE = pin_rd;
-
+static const int pin_nCE = pin_mrq;
 // static const int pin_nCE get rid of this
 
 byte g_cmd[80]; // strings received from the controller will go in here
@@ -142,51 +139,30 @@ byte buffer[kMaxBufferSize];
 
 static const long int k_uTime_WritePulse_uS = 1;
 static const long int k_uTime_ReadPulse_uS = 1;
+
+
 // (to be honest, both of the above are about ten times too big - but the Arduino won't reliably
 // delay down at the nanosecond level, so this is the best we can do.)
 
 // the setup function runs once when you press reset or power the board
 void setup()
 {
+  passiveMode();
   Serial.begin(57600);
 
-  pinMode(pin_WaitingForInput, OUTPUT); digitalWrite(pin_WaitingForInput, HIGH);
-  pinMode(pin_LED_Red, OUTPUT); digitalWrite(pin_LED_Red, LOW);
-  pinMode(pin_LED_Grn, OUTPUT); digitalWrite(pin_LED_Grn, LOW);
 
-  // address lines are ALWAYS outputs
-  pinMode(pin_addr[0],  OUTPUT);
-  pinMode(pin_addr[1],  OUTPUT);
-  pinMode(pin_addr[2],  OUTPUT);
-  pinMode(pin_addr[3],  OUTPUT);
-  pinMode(pin_addr[4],  OUTPUT);
-  pinMode(pin_addr[5],  OUTPUT);
-  pinMode(pin_addr[6],  OUTPUT);
-  pinMode(pin_addr[7],  OUTPUT);
-  pinMode(pin_addr[8],  OUTPUT);
-  pinMode(pin_addr[9],  OUTPUT);
-  pinMode(pin_addr[10], OUTPUT);
-  pinMode(pin_addr[11], OUTPUT);
-  pinMode(pin_addr[12], OUTPUT);
-  pinMode(pin_addr[13], OUTPUT);
-  pinMode(pin_addr[14], OUTPUT);
-  pinMode(pin_addr[15], OUTPUT);
-
-  // control lines are ALWAYS outputs
-  // pinMode(pin_nCE, OUTPUT); digitalWrite(pin_nCE, LOW); // might as well keep the chip enabled ALL the time
-  pinMode(pin_nOE, OUTPUT); digitalWrite(pin_nOE, HIGH);
-  pinMode(pin_nWE, OUTPUT); digitalWrite(pin_nWE, HIGH); // not writing
-
-  SetDataLinesAsInputs();
-  SetAddress(0);
+  pinMode(pin_WaitingForInput, OUTPUT);
 }
 
 void loop()
 {
   while (true)
   {
+    Serial.println("asd");
     digitalWrite(pin_WaitingForInput, HIGH);
+    Serial.println("1");
     ReadString();
+    Serial.println("2");
     digitalWrite(pin_WaitingForInput, LOW);
 
     switch (g_cmd[0])
@@ -202,6 +178,95 @@ void loop()
   }
 }
 
+
+void passiveMode() {
+  setDataInput();
+  setAddrInput();
+  pinMode(pin_rd, INPUT);
+  pinMode(pin_wr, INPUT);
+  pinMode(pin_iorq, INPUT);
+  pinMode(pin_mrq, INPUT);
+  pinMode(pin_rom_wr, INPUT);
+  pinMode(pin_bsrq, INPUT);
+  pinMode(pin_bsak, INPUT);
+  pinMode(pin_rst, INPUT);
+}
+
+void setDataInput() {
+  for(int i = 0; i < 8; i++) {
+    pinMode(pin_data[i], INPUT);
+  }
+}
+
+void setDataOutput() {
+  for(int i = 0; i < 8; i++) {
+    pinMode(pin_data[i], OUTPUT);
+  }
+}
+
+
+void setAddrInput() {
+  for(int i = 0; i < 16; i++) {
+    pinMode(pin_addr[i], INPUT);
+  }
+}
+
+void setAddrOutput() {
+  for(int i = 0; i < 16; i++) {
+    pinMode(pin_addr[i], OUTPUT);
+  }
+}
+
+void takeBus() {
+  pinMode(pin_rst, OUTPUT);
+  pinMode(pin_bsrq, OUTPUT);
+  digitalWrite(pin_rst, LOW);
+  digitalWrite(pin_bsrq, LOW);
+  delayMicroseconds(10);
+//  digitalWrite(pin_rst, HIGH);
+  delayMicroseconds(10);
+}
+
+void setControlOutput() {
+  pinMode(pin_rd, OUTPUT);
+  pinMode(pin_wr, OUTPUT);
+  pinMode(pin_rom_wr, OUTPUT);
+  pinMode(pin_iorq, OUTPUT);
+  pinMode(pin_mrq, OUTPUT);
+}
+
+void setControlInput() {
+  pinMode(pin_rd, INPUT);
+  pinMode(pin_wr, INPUT);
+  pinMode(pin_rom_wr, INPUT);
+  pinMode(pin_iorq, INPUT);
+  pinMode(pin_mrq, INPUT);
+}
+
+void selectRom() {
+  digitalWrite(pin_rd, HIGH);
+  digitalWrite(pin_wr, HIGH);
+  digitalWrite(pin_iorq, HIGH);
+  digitalWrite(pin_mrq, LOW);
+}
+
+void prepareToReadOrWrite() {
+  takeBus();
+  setControlOutput();
+  selectRom();
+  setAddrOutput();
+}
+
+void giveBus() {
+  setDataInput();
+  setAddrInput();
+  setControlInput();
+  digitalWrite(pin_rst, LOW);
+  pinMode(pin_bsrq, INPUT);
+  delayMicroseconds(10);
+  pinMode(pin_rst, INPUT);
+}
+
 void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginning at <address> (in hex)
 {
   if (g_cmd[1] == 0)
@@ -209,7 +274,7 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
     Serial.println("ERR");
     return;
   }
-
+  prepareToReadOrWrite();
   // decode ASCII representation of address (in hex) into an actual value
   int addr = 0;
   int x = 1;
@@ -220,9 +285,9 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
   }
 
   digitalWrite(pin_nWE, HIGH); // disables write
-  SetDataLinesAsInputs();
+  setDataInput();
   digitalWrite(pin_nOE, LOW); // makes the EEPROM output the byte
-  delayMicroseconds(1);
+  delayMicroseconds(5);
 
   ReadEEPROMIntoBuffer(addr, kMaxBufferSize);
 
@@ -237,6 +302,8 @@ void ReadEEPROM() // R<address>  - read kMaxBufferSize bytes from EEPROM, beginn
   Serial.println("OK");
 
   digitalWrite(pin_nOE, HIGH); // stops the EEPROM outputting the byte
+  delayMicroseconds(10);
+  giveBus();
 }
 
 void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per byte, max of 16 bytes per line>
@@ -247,6 +314,8 @@ void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per 
     return;
   }
 
+  prepareToReadOrWrite();
+  delayMicroseconds(10);
   int addr = 0;
   int x = 1;
   while (g_cmd[x] != ':' && g_cmd[x] != 0)
@@ -302,6 +371,8 @@ void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per 
   {
     Serial.println("OK");
   }
+  delayMicroseconds(10);
+  giveBus();
 }
 
 // Important note: the EEPROM needs to have data written to it immediately after sending the "unprotect" command, so that the buffer is flushed.
@@ -311,17 +382,16 @@ void WriteEEPROM() // W<four byte hex address>:<data in hex, two characters per 
 
 void SetSDPState(bool bWriteProtect)
 {
-  digitalWrite(pin_LED_Red, HIGH);
 
   digitalWrite(pin_nWE, HIGH); // disables write
   digitalWrite(pin_nOE, LOW); // makes the EEPROM output the byte
-  SetDataLinesAsInputs();
+  setDataInput();
 
   byte bytezero = ReadByteFrom(0);
 
   digitalWrite(pin_nOE, HIGH); // stop EEPROM from outputting byte
   digitalWrite(pin_nCE, HIGH);
-  SetDataLinesAsOutputs();
+  setDataOutput();
 
   // Different chips can have different byte sequences.
   // Check the data sheet if your chip doesn't match on of the below.
@@ -363,7 +433,6 @@ void SetSDPState(bool bWriteProtect)
   WriteByteTo(0x0000, bytezero); // this "dummy" write is required so that the EEPROM will flush its buffer of commands.
 
   digitalWrite(pin_nCE, LOW); // return to on by default for the rest of the code
-  digitalWrite(pin_LED_Red, LOW);
 
   Serial.print("OK SDP ");
   if (bWriteProtect)
@@ -380,9 +449,8 @@ void SetSDPState(bool bWriteProtect)
 
 void ReadEEPROMIntoBuffer(int addr, int size)
 {
-  digitalWrite(pin_LED_Grn, HIGH);
   digitalWrite(pin_nWE, HIGH);
-  SetDataLinesAsInputs();
+  setDataInput();
   digitalWrite(pin_nOE, LOW);
 
   for (int x = 0; x < size; ++x)
@@ -391,22 +459,19 @@ void ReadEEPROMIntoBuffer(int addr, int size)
   }
 
   digitalWrite(pin_nOE, HIGH);
-  digitalWrite(pin_LED_Grn, LOW);
 }
 
 void WriteBufferToEEPROM(int addr, int size)
 {
-  digitalWrite(pin_LED_Red, HIGH);
   digitalWrite(pin_nOE, HIGH); // stop EEPROM from outputting byte
   digitalWrite(pin_nWE, HIGH); // disables write
-  SetDataLinesAsOutputs();
+  setDataOutput();
 
   for (uint8_t x = 0; x < size; ++x)
   {
     WriteByteTo(addr + x, buffer[x]);
   }
 
-  digitalWrite(pin_LED_Red, LOW);
 }
 
 // ----------------------------------------------------------------------------------------
@@ -440,30 +505,6 @@ void WriteByteTo(int addr, byte b)
 }
 
 // ----------------------------------------------------------------------------------------
-
-void SetDataLinesAsInputs()
-{
-  pinMode(pin_data[0], INPUT);
-  pinMode(pin_data[1], INPUT);
-  pinMode(pin_data[2], INPUT);
-  pinMode(pin_data[3], INPUT);
-  pinMode(pin_data[4], INPUT);
-  pinMode(pin_data[5], INPUT);
-  pinMode(pin_data[6], INPUT);
-  pinMode(pin_data[7], INPUT);
-}
-
-void SetDataLinesAsOutputs()
-{
-  pinMode(pin_data[0], OUTPUT);
-  pinMode(pin_data[1], OUTPUT);
-  pinMode(pin_data[2], OUTPUT);
-  pinMode(pin_data[3], OUTPUT);
-  pinMode(pin_data[4], OUTPUT);
-  pinMode(pin_data[5], OUTPUT);
-  pinMode(pin_data[6], OUTPUT);
-  pinMode(pin_data[7], OUTPUT);
-}
 
 void SetAddress(int a)
 {
@@ -575,5 +616,3 @@ byte HexToVal(byte b)
   if (b >= 'a' && b <= 'f') return((b - 'a') + 10);
   return(0);
 }
-
-
